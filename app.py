@@ -11,6 +11,23 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 def home():
     return "MES webhook server is running"
 
+@app.route("/test-telegram")
+def test_telegram():
+    msg = "✅ Telegram 測試成功，Render webhook 正常運作中"
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": msg
+    }
+    r = requests.post(url, json=payload, timeout=20)
+
+    return jsonify({
+        "ok": True,
+        "telegram_status": r.status_code,
+        "message": msg
+    })
+
 @app.route("/webhook/tradingview", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
