@@ -20,7 +20,7 @@ def send_telegram_message(text):
 
 
 def ask_perplexity(signal_text):
-    url = "https://api.perplexity.ai/v1/sonar"
+    url = "https://api.perplexity.ai/chat/completions"
     headers = {
         "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
         "Content-Type": "application/json"
@@ -61,30 +61,56 @@ def test():
 
 @app.route("/webhook/tradingview", methods=["POST"])
 def tradingview_webhook():
-    raw_text = request.get_data(as_text=True).strip()
-
-    if not raw_text:
-        raw_text = "MES LONG signal"
+    raw_text = ""
 
     try:
-        analysis = ask_perplexity(raw_text)
-    except Exception as e:
-        analysis = f"Perplexity 分析失敗：{str(e)}"
+        if request.is_json:
+            data = request.get_json(silent=True)
+            if isinstance(data, dict):
+                raw_text = str(data)
+            elif data:
+                raw_text = str(data)
+        if not raw_text:
+            raw_text = request.get_data(as_text=True).strip()
+        if not raw_text:
+            raw_text = "MES LONG signal"
 
-    final_msg = f"TradingView 訊號
-原始內容：{raw_text}
+        try:
+            analysis = ask_perplexity(raw_text)
+        except Exception as e:
+            analysis = f"Perplexity 分析失敗：{str(e)}"
 
-Perplexity 分析：
+        final_msg = (
+            f"TradingView 訊號
+"
+            f"原始內容：{raw_text}
+
+"
+            f"Perplexity 分析：
 {analysis}"
-    tg_status, tg_text = send_telegram_message(final_msg)
+        )
 
-    return jsonify({
-        "ok": True,
-        "received": raw_text,
-        "analysis": analysis,
-        "telegram_status": tg_status,
-        "telegram_response": tg_text
-    })
+        tg_status, tg_text = send_telegram_message(final_msg)
+
+        return jsonify({
+            "ok": True,
+            "received": raw_text,
+            "analysis": analysis,
+            "telegram_status": tg_status,
+            "telegram_response": tg_text
+        }), 200
+
+    except Exception as e:
+        error_msg = f"Webhook 處理失敗：{str(e)}"
+        try:
+            send_telegram_message(error_msg)
+        except Exception:
+            pass
+
+        return jsonify({
+            "ok": False,
+            "error": error_msg
+        }), 200
 
 
 if __name__ == "__main__":
