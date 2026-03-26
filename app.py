@@ -20,14 +20,15 @@ def send_telegram_message(text):
 
 @app.route("/", methods=["GET"])
 def home():
-    return "MES webhook server is running."
+    return "DEBUG VERSION 20260327"
 
 
 @app.route("/test", methods=["GET"])
 def test():
-    tg_status, tg_text = send_telegram_message("Telegram 測試成功")
+    tg_status, tg_text = send_telegram_message("DEBUG TEST OK")
     return jsonify({
         "ok": True,
+        "version": "DEBUG VERSION 20260327",
         "telegram_status": tg_status,
         "telegram_response": tg_text
     }), 200
@@ -35,33 +36,23 @@ def test():
 
 @app.route("/webhook/tradingview", methods=["POST"])
 def tradingview_webhook():
-    try:
-        raw_text = request.get_data(as_text=True)
-        if not raw_text:
-            raw_text = "EMPTY BODY"
+    raw_text = request.get_data(as_text=True)
 
-        tg_status, tg_text = send_telegram_message(
-            f"收到 TradingView webhook：
-{raw_text}"
-        )
+    if not raw_text:
+        raw_text = "EMPTY BODY"
 
-        return jsonify({
-            "ok": True,
-            "received": raw_text,
-            "telegram_status": tg_status,
-            "telegram_response": tg_text
-        }), 200
+    tg_status, tg_text = send_telegram_message(
+        f"DEBUG WEBHOOK OK
+內容：{raw_text}"
+    )
 
-    except Exception as e:
-        try:
-            send_telegram_message(f"Webhook 錯誤：{str(e)}")
-        except Exception:
-            pass
-
-        return jsonify({
-            "ok": False,
-            "error": str(e)
-        }), 200
+    return jsonify({
+        "ok": True,
+        "version": "DEBUG VERSION 20260327",
+        "received": raw_text,
+        "telegram_status": tg_status,
+        "telegram_response": tg_text
+    }), 200
 
 
 if __name__ == "__main__":
