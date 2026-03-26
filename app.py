@@ -48,7 +48,7 @@ def ask_perplexity(signal_text):
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Webhook server is running."
+    return "MES webhook server is running."
 
 @app.route("/test", methods=["GET"])
 def test():
@@ -63,6 +63,7 @@ def test():
 @app.route("/test-ai", methods=["GET"])
 def test_ai():
     raw_text = "MES LONG signal"
+
     try:
         analysis = ask_perplexity(raw_text)
     except Exception as e:
