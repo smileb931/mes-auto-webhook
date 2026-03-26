@@ -9,7 +9,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
 def send_telegram_message(text):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/sendMessage"
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text
@@ -20,7 +20,7 @@ def send_telegram_message(text):
 
 @app.route("/", methods=["GET"])
 def home():
-    return "DEBUG VERSION 20260327"
+    return "DEBUG VERSION 20260327 OK"
 
 
 @app.route("/test", methods=["GET"])
@@ -28,7 +28,7 @@ def test():
     tg_status, tg_text = send_telegram_message("DEBUG TEST OK")
     return jsonify({
         "ok": True,
-        "version": "DEBUG VERSION 20260327",
+        "version": "DEBUG VERSION 20260327 OK",
         "telegram_status": tg_status,
         "telegram_response": tg_text
     }), 200
@@ -36,23 +36,35 @@ def test():
 
 @app.route("/webhook/tradingview", methods=["POST"])
 def tradingview_webhook():
-    raw_text = request.get_data(as_text=True)
+    try:
+        raw_text = request.get_data(as_text=True)
 
-    if not raw_text:
-        raw_text = "EMPTY BODY"
+        if not raw_text:
+            raw_text = "EMPTY BODY"
 
-    tg_status, tg_text = send_telegram_message(
-        f"DEBUG WEBHOOK OK
-內容：{raw_text}"
-    )
+        msg = "DEBUG WEBHOOK OK
+內容：" + raw_text
+        tg_status, tg_text = send_telegram_message(msg)
 
-    return jsonify({
-        "ok": True,
-        "version": "DEBUG VERSION 20260327",
-        "received": raw_text,
-        "telegram_status": tg_status,
-        "telegram_response": tg_text
-    }), 200
+        return jsonify({
+            "ok": True,
+            "version": "DEBUG VERSION 20260327 OK",
+            "received": raw_text,
+            "telegram_status": tg_status,
+            "telegram_response": tg_text
+        }), 200
+
+    except Exception as e:
+        err = "Webhook 錯誤：" + str(e)
+        try:
+            send_telegram_message(err)
+        except Exception:
+            pass
+
+        return jsonify({
+            "ok": False,
+            "error": err
+        }), 200
 
 
 if __name__ == "__main__":
