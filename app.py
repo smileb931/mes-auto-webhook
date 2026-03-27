@@ -1,97 +1,96 @@
 from flask import Flask, request, jsonify
 import requests
 import os
-from datetime import datetime
+import logging
 
 app = Flask(__name__)
 
-# ═══════════════════════════════════════════════════════════
-# 環境變數配置（在 Render.com 設定）
-# ═══════════════════════════════════════════════════════════
+# 配置日誌
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# 從環境變數獲取設定
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 PERPLEXITY_API_KEY = os.environ.get('PERPLEXITY_API_KEY')
 
-# ═══════════════════════════════════════════════════════════
-# 健康檢查端點（Render.com 用來確認服務運行）
-# ═══════════════════════════════════════════════════════════
 @app.route('/')
 def home():
     return jsonify({
-        'status': 'online',
-        'service': 'MES Trading Bot',
-        'version': 'v5.0',
-        'timestamp': datetime.now().isoformat()
+        "status": "online",
+        "service": "MES Auto Trading Webhook",
+        "endpoints": {
+            "health": "/health",
+            "webhook": "/tradingview-webhook"
+        }
     })
 
 @app.route('/health')
 def health():
-    return jsonify({'status': 'healthy'})
+    return jsonify({"status": "healthy"})
 
-# ═══════════════════════════════════════════════════════════
-# TradingView Webhook 接收端點
-# ═══════════════════════════════════════════════════════════
 @app.route('/tradingview-webhook', methods=['POST'])
 def tradingview_webhook():
     try:
-        # 1. 接收 TradingView 數據
-        data = request.json
+        # 獲取 TradingView 傳來的資料
+        data = request.get_json()
+        logger.info(f"Received TradingView alert: {data}")
         
-        # 提取訊號數據
-        signal = data.get('signal', '')
+        if not data:
+            logger.error("No JSON data received")
+            return jsonify({"status": "error", "message": "No data received"}), 400
+        
+        # 提取訊號資訊
+        signal = data.get('signal', '未知訊號')
         price = data.get('price', 0)
-        direction = data.get('direction', '')
+        direction = data.get('direction', '未知')
         score = data.get('score', 0)
         position = data.get('position', 0)
         winrate = data.get('winrate', 0)
         risk = data.get('risk', 0)
-        advice = data.get('advice', '')
-        timestamp = data.get('time', '')
+        advice = data.get('advice', '無建議')
+        time = data.get('time', '未知時間')
         
-        print(f"[INFO] 收到訊號: {signal} | 價格: {price} | 方向: {direction}")
+        # 呼叫 Perplexity AI 進行市場分析
+        logger.info("Calling Perplexity API...")
+        perplexity_analysis = call_perplexity_api(signal, price, direction, score)
         
-        # 2. 調用 Perplexity API 進行深度分析
-        perplexity_analysis = analyze_with_perplexity(
-            signal, price, direction, score, winrate
-        )
-        
-        # 3. 組合完整訊息（極簡版 A 格式）
-        message = f"""⚡ MES 閃電訊號 {signal}
+        # 組合 Telegram 訊息
+        telegram_message = f"""
+⚡ MES 閃電訊號 {signal}
 價格：{price:,.2f}
-時間：{timestamp.split()[-1] if timestamp else 'N/A'}
+時間：{time}
 
 {advice}
 方向：{direction}
-倉位：{position}（{'滿倉' if position == 1.0 else '半倉' if position == 0.5 else '觀察'})
+倉位：{position}（{'滿倉' if position >= 1.0 else '半倉' if position >= 0.5 else '輕倉'}）
 勝率：{winrate}%
 風險：{risk}/100
 
 ━━━━━━━━━━
-AI 深度分析：
-{perplexity_analysis}"""
+🤖 AI 深度分析：
+{perplexity_analysis}
+"""
         
-        # 4. 發送到 Telegram
-        send_to_telegram(message)
-        
-        print(f"[SUCCESS] 訊號已發送到 Telegram")
+        # 發送到 Telegram
+        logger.info("Sending Telegram message...")
+        send_telegram_message(telegram_message)
         
         return jsonify({
-            'status': 'success',
-            'message': 'Alert processed and sent to Telegram'
-        }), 200
+            "status": "success",
+            "message": "Alert processed and sent to Telegram",
+            "data": data
+        })
         
     except Exception as e:
-        print(f"[ERROR] {str(e)}")
+        logger.error(f"Error processing webhook: {str(e)}")
         return jsonify({
-            'status': 'error',
-            'message': str(e)
+            "status": "error",
+            "message": str(e)
         }), 500
 
-# ═══════════════════════════════════════════════════════════
-# Perplexity API 分析函數
-# ═══════════════════════════════════════════════════════════
-def analyze_with_perplexity(signal, price, direction, score, winrate):
-    """調用 Perplexity API 進行市場分析"""
+def call_perplexity_api(signal, price, direction, score):
+    """呼叫 Perplexity AI 進行市場分析"""
     try:
         url = "https://api.perplexity.ai/chat/completions"
         
@@ -100,60 +99,50 @@ def analyze_with_perplexity(signal, price, direction, score, winrate):
             "Content-Type": "application/json"
         }
         
-        # 構建分析提示詞
-        prompt = f"""作為專業的期貨交易分析師，請分析以下 MES 期貨訊號：
+        prompt = f"""
+你是專業的期貨市場分析師。根據以下 MES 期貨訊號，提供精簡的市場分析（最多100字）：
 
-訊號等級：{signal}
-當前價格：{price}
-交易方向：{direction}
-綜合評分：{score}/100
-預期勝率：{winrate}%
+訊號：{signal}
+價格：{price}
+方向：{direction}
+評分：{score}/100
 
-請提供：
-1. 技術面分析（簡短）
-2. 風險評估（簡短）
-3. 進場建議（明確）
+請分析：
+1. 當前市場趨勢
+2. 進場時機評估
+3. 風險提醒
 
-請用繁體中文回答，限制在 150 字內。"""
+用繁體中文回答，直接給出分析內容，不要前言。
+"""
         
         payload = {
             "model": "llama-3.1-sonar-small-128k-online",
             "messages": [
                 {
-                    "role": "system",
-                    "content": "你是一位專業的期貨交易分析師，擅長技術分析和風險管理。回答簡潔明確。"
-                },
-                {
                     "role": "user",
                     "content": prompt
                 }
             ],
-            "max_tokens": 300,
-            "temperature": 0.2,
-            "top_p": 0.9
+            "max_tokens": 200,
+            "temperature": 0.2
         }
         
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
         
-        result = response.json()
-        analysis = result['choices'][0]['message']['content']
-        
-        return analysis.strip()
-        
-    except requests.exceptions.Timeout:
-        return "⚠️ API 請求超時，請稍後再試"
-    except requests.exceptions.RequestException as e:
-        print(f"[ERROR] Perplexity API 錯誤: {str(e)}")
-        return "⚠️ AI 分析暫時無法使用"
+        if response.status_code == 200:
+            result = response.json()
+            analysis = result['choices'][0]['message']['content']
+            logger.info(f"Perplexity response: {analysis}")
+            return analysis
+        else:
+            logger.error(f"Perplexity API error: {response.status_code} - {response.text}")
+            return "AI 分析暫時無法使用，請依據技術指標自行判斷。"
+            
     except Exception as e:
-        print(f"[ERROR] 未知錯誤: {str(e)}")
-        return "⚠️ 分析過程發生錯誤"
+        logger.error(f"Error calling Perplexity API: {str(e)}")
+        return "AI 分析服務連線失敗，請稍後再試。"
 
-# ═══════════════════════════════════════════════════════════
-# Telegram 發送函數
-# ═══════════════════════════════════════════════════════════
-def send_to_telegram(message):
+def send_telegram_message(message):
     """發送訊息到 Telegram"""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -161,42 +150,27 @@ def send_to_telegram(message):
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
             "text": message,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True
+            "parse_mode": "HTML"
         }
         
         response = requests.post(url, json=payload, timeout=10)
-        response.raise_for_status()
         
-        return True
-        
+        if response.status_code == 200:
+            logger.info("Message sent successfully!")
+        else:
+            logger.error(f"Telegram API error: {response.status_code} - {response.text}")
+            
     except Exception as e:
-        print(f"[ERROR] Telegram 發送失敗: {str(e)}")
-        return False
+        logger.error(f"Error sending Telegram message: {str(e)}")
 
-# ═══════════════════════════════════════════════════════════
-# 測試端點（可選）
-# ═══════════════════════════════════════════════════════════
-@app.route('/test', methods=['POST'])
-def test():
-    """測試 Webhook 和 API 是否正常"""
-    test_data = {
-        "signal": "#S級",
-        "price": 6467.00,
-        "direction": "多",
-        "score": 87,
-        "position": 1.0,
-        "winrate": 75,
-        "risk": 25,
-        "advice": "✅ 強烈建議進場",
-        "time": "2026-03-27 23:31:00"
-    }
-    
-    return tradingview_webhook()
-
-# ═══════════════════════════════════════════════════════════
-# 啟動服務器
-# ═══════════════════════════════════════════════════════════
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # 啟動前檢查環境變數
+    if not TELEGRAM_BOT_TOKEN:
+        logger.error("TELEGRAM_BOT_TOKEN not set!")
+    if not TELEGRAM_CHAT_ID:
+        logger.error("TELEGRAM_CHAT_ID not set!")
+    if not PERPLEXITY_API_KEY:
+        logger.error("PERPLEXITY_API_KEY not set!")
+    
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
