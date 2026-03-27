@@ -11,76 +11,110 @@ PPLX = os.getenv("PERPLEXITY_API_KEY")
 
 
 def tg(text):
-    url = "https://api.telegram.org/bot" + BOT + "/sendMessage"
-    data = {"chat_id": CHAT, "text": text}
-    r = requests.post(url, json=data, timeout=30)
-    return r.status_code
+    """發送 Telegram 訊息"""
+    url = f"https://api.telegram.org/bot{BOT}/sendMessage"
+    data = {"chat_id": CHAT, "text": text, "parse_mode": "HTML"}
+    try:
+        r = requests.post(url, json=data, timeout=30)
+        return r.status_code
+    except Exception as e:
+        print(f"Telegram error: {e}")
+        return 0
 
 
 def ask_pplx(signal_text):
+    """呼叫 Perplexity API 做精簡分析"""
     url = "https://api.perplexity.ai/chat/completions"
     headers = {
-        "Authorization": "Bearer " + PPLX,
+        "Authorization": f"Bearer {PPLX}",
         "Content-Type": "application/json"
     }
+    
+    system_prompt = """你是 MES 閃電判斷 V4.1 交易助理。
+
+規則:
+1. 不要搜尋網路
+2. 不要引用新聞
+3. 只根據訊號內容判讀
+4. 用繁體中文
+5. 總長度控制在 4 行內
+
+輸出格式:
+- 趨勢判斷: (明確翻多/明確翻空/觀望)
+- 操作建議: (進場/等待/觀察)
+- 風險提示: (一句話)
+- 關鍵價位: (如有)"""
+
     payload = {
         "model": "sonar",
         "messages": [
-            {
-                "role": "system",
-                "content": "你是專業的美股期貨交易分析助手。請用繁體中文，簡短分析這筆 MES 訊號的可能意義、偏多偏空方向、以及交易風險。控制在6行內。"
-            },
-            {
-                "role": "user",
-                "content": signal_text
-            }
-        ]
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": signal_text}
+        ],
+        "temperature": 0.3,
+        "max_tokens": 200
     }
-    r = requests.post(url, headers=headers, json=payload, timeout=60)
-    r.raise_for_status()
-    j = r.json()
-    return j["choices"][0]["message"]["content"]
+    
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=60)
+        r.raise_for_status()
+        j = r.json()
+        return j["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"分析失敗: {str(e)}"
 
 
 def process_signal(body):
+    """背景處理訊號"""
     try:
         analysis = ask_pplx(body)
     except Exception as e:
-        analysis = "Perplexity 分析失敗: " + str(e)
+        analysis = f"AI 分析異常: {str(e)}"
 
-    msg = "TradingView 訊號: " + body + "\n\nPerplexity 分析:\n" + analysis
+    # 組合 Telegram 訊息 (使用 HTML 格式)
+    msg = f"""<b>⚡ MES v4.1 閃電訊號</b>
+
+<b>原始判斷:</b>
+<code>{body}</code>
+
+<b>AI 分析:</b>
+{analysis}
+
+<i>時間: 台灣盤後</i>"""
 
     try:
         tg(msg)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Send error: {e}")
 
 
 @app.route("/")
 def home():
-    return "OK-PPLX-ASYNC-20260327"
+    return "MES-PPLX-V4.1-FILTER-20260327"
 
 
 @app.route("/test")
 def test():
-    code = tg("TEST OK PPLX ASYNC 20260327")
+    code = tg("✅ TEST OK - MES v4.1 Trend Filter Active")
     return jsonify({"ok": True, "code": code})
 
 
 @app.route("/webhook/tradingview", methods=["POST"])
 def webhook():
+    """接收 TradingView webhook"""
     body = request.get_data(as_text=True)
-
-    if not body:
-        body = "EMPTY"
-
+    
+    if not body or len(body) < 10:
+        return jsonify({"error": "Empty or invalid signal"}), 400
+    
+    # 立即回應 200 避免 timeout
     t = threading.Thread(target=process_signal, args=(body,))
     t.start()
-
+    
     return jsonify({
         "ok": True,
         "accepted": True,
-        "body": body
+        "length": len(body)
     }), 200
 
 
