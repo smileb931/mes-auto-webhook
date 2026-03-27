@@ -6,6 +6,8 @@ app = Flask(__name__)
 
 BOT = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT = os.getenv("TELEGRAM_CHAT_ID")
+PPLX = os.getenv("PERPLEXITY_API_KEY")
+
 
 def tg(text):
     url = "https://api.telegram.org/bot" + BOT + "/sendMessage"
@@ -13,22 +15,69 @@ def tg(text):
     r = requests.post(url, json=data, timeout=30)
     return r.status_code
 
+
+def ask_pplx(signal_text):
+    url = "https://api.perplexity.ai/chat/completions"
+    headers = {
+        "Authorization": "Bearer " + PPLX,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "sonar",
+        "messages": [
+            {
+                "role": "system",
+                "content": "你是專業的美股期貨交易分析助手。請用繁體中文，簡短分析這筆 MES 訊號的可能意義、偏多偏空方向、以及交易上要注意的風險。控制在6行內。"
+            },
+            {
+                "role": "user",
+                "content": signal_text
+            }
+        ]
+    }
+    r = requests.post(url, headers=headers, json=payload, timeout=60)
+    r.raise_for_status()
+    j = r.json()
+    return j["choices"][0]["message"]["content"]
+
+
 @app.route("/")
 def home():
-    return "OK-20260327"
+    return "OK-PPLX-20260327"
+
 
 @app.route("/test")
 def test():
-    code = tg("TEST OK 20260327")
+    code = tg("TEST OK PPLX 20260327")
     return jsonify({"ok": True, "code": code})
+
 
 @app.route("/webhook/tradingview", methods=["POST"])
 def webhook():
     body = request.get_data(as_text=True)
+
     if not body:
         body = "EMPTY"
-    code = tg("WEBHOOK OK: " + body)
-    return jsonify({"ok": True, "body": body, "code": code})
+
+    try:
+        analysis = ask_pplx(body)
+    except Exception as e:
+        analysis = "Perplexity 分析失敗: " + str(e)
+
+    msg = "TradingView 訊號: " + body + "\n\nPerplexity 分析:\n" + analysis
+
+    try:
+        code = tg(msg)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 200
+
+    return jsonify({
+        "ok": True,
+        "body": body,
+        "analysis": analysis,
+        "code": code
+    }), 200
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
