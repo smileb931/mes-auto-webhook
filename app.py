@@ -1,5 +1,6 @@
 import os
 import requests
+import threading
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -27,7 +28,7 @@ def ask_pplx(signal_text):
         "messages": [
             {
                 "role": "system",
-                "content": "你是專業的美股期貨交易分析助手。請用繁體中文，簡短分析這筆 MES 訊號的可能意義、偏多偏空方向、以及交易上要注意的風險。控制在6行內。"
+                "content": "你是專業的美股期貨交易分析助手。請用繁體中文，簡短分析這筆 MES 訊號的可能意義、偏多偏空方向、以及交易風險。控制在6行內。"
             },
             {
                 "role": "user",
@@ -41,14 +42,28 @@ def ask_pplx(signal_text):
     return j["choices"][0]["message"]["content"]
 
 
+def process_signal(body):
+    try:
+        analysis = ask_pplx(body)
+    except Exception as e:
+        analysis = "Perplexity 分析失敗: " + str(e)
+
+    msg = "TradingView 訊號: " + body + "\n\nPerplexity 分析:\n" + analysis
+
+    try:
+        tg(msg)
+    except Exception:
+        pass
+
+
 @app.route("/")
 def home():
-    return "OK-PPLX-20260327"
+    return "OK-PPLX-ASYNC-20260327"
 
 
 @app.route("/test")
 def test():
-    code = tg("TEST OK PPLX 20260327")
+    code = tg("TEST OK PPLX ASYNC 20260327")
     return jsonify({"ok": True, "code": code})
 
 
@@ -59,23 +74,13 @@ def webhook():
     if not body:
         body = "EMPTY"
 
-    try:
-        analysis = ask_pplx(body)
-    except Exception as e:
-        analysis = "Perplexity 分析失敗: " + str(e)
-
-    msg = "TradingView 訊號: " + body + "\n\nPerplexity 分析:\n" + analysis
-
-    try:
-        code = tg(msg)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 200
+    t = threading.Thread(target=process_signal, args=(body,))
+    t.start()
 
     return jsonify({
         "ok": True,
-        "body": body,
-        "analysis": analysis,
-        "code": code
+        "accepted": True,
+        "body": body
     }), 200
 
 
